@@ -91,15 +91,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     _preferredConversion = kColorConversion709;
     
 	// Grab the back-facing or front-facing camera
-    _inputCamera = nil;
-	NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-	for (AVCaptureDevice *device in devices) 
-	{
-		if ([device position] == cameraPosition)
-		{
-			_inputCamera = device;
-		}
-	}
+    _inputCamera = [self preferredDeviceForPosition:cameraPosition];
     
     if (!_inputCamera) {
         return nil;
@@ -380,15 +372,8 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         currentCameraPosition = AVCaptureDevicePositionBack;
     }
     
-    AVCaptureDevice *backFacingCamera = nil;
-    NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-	for (AVCaptureDevice *device in devices) 
-	{
-		if ([device position] == currentCameraPosition)
-		{
-			backFacingCamera = device;
-		}
-	}
+    AVCaptureDevice *backFacingCamera = [self preferredDeviceForPosition:currentCameraPosition];
+    
     newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:backFacingCamera error:&error];
     
     if (newVideoInput != nil)
@@ -411,6 +396,29 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     
     _inputCamera = backFacingCamera;
     [self setOutputImageOrientation:_outputImageOrientation];
+}
+
+- (AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position {
+    // on iPhone, if available, use triple camera
+    AVCaptureDevice *preferredDevice = nil;
+    BOOL iPhone = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
+    if (iPhone && @available(iOS 13.0, *)) {
+        preferredDevice = [AVCaptureDevice defaultDeviceWithDeviceType:AVCaptureDeviceTypeBuiltInTripleCamera
+                                                          mediaType:AVMediaTypeVideo
+                                                           position:position];
+    }
+    
+    if (preferredDevice == nil) {
+        NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+        for (AVCaptureDevice *device in devices)
+        {
+            if ([device position] == position)
+            {
+                preferredDevice = device;
+            }
+        }
+    }
+    return preferredDevice;
 }
 
 - (AVCaptureDevicePosition)cameraPosition 
