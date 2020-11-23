@@ -153,4 +153,6 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 + (BOOL)isBackFacingCameraPresent;
 + (BOOL)isFrontFacingCameraPresent;
 
+- (void)updatePhotoOutputSettings;
+
 @end

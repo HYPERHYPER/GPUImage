@@ -81,6 +81,27 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
    
     // Having a still photo input set to BGRA and video to YUV doesn't work well, so since I don't have YUV resizing for iPhone 4 yet, kick back to BGRA for that device
 //    if (captureAsYUV && [GPUImageContext supportsFastTextureUpload])
+    
+    
+    [self updatePhotoOutputSettings];
+    
+    [self.captureSession addOutput:photoOutput];
+    
+    [self.captureSession commitConfiguration];
+    
+    self.jpegCompressionQuality = 0.8;
+    
+    return self;
+}
+
+- (void)updatePhotoOutputSettings {
+    CMVideoDimensions dimensionsOfPhoto = _inputCamera.activeFormat.highResolutionStillImageDimensions;
+    CGSize sizeOfPhoto = CGSizeMake(dimensionsOfPhoto.width, dimensionsOfPhoto.height);
+    CGSize scaledImageSizeToFitOnGPU = [GPUImageContext sizeThatFitsWithinATextureForSize:sizeOfPhoto];
+    if (!CGSizeEqualToSize(sizeOfPhoto, scaledImageSizeToFitOnGPU)) {
+        captureAsYUV = NO;
+    }
+    
     if (captureAsYUV && [GPUImageContext deviceSupportsRedTextures])
     {
         BOOL supportsFullYUVRange = NO;
@@ -108,14 +129,6 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
         [photoOutput setOutputSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
         [videoOutput setVideoSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
     }
-    
-    [self.captureSession addOutput:photoOutput];
-    
-    [self.captureSession commitConfiguration];
-    
-    self.jpegCompressionQuality = 0.8;
-    
-    return self;
 }
 
 - (id)init;

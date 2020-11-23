@@ -398,6 +398,13 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     [self setOutputImageOrientation:_outputImageOrientation];
 }
 
+- (void)updatePhotoOutputSettings {
+    // GPUImageStillCamera overrides this method to
+    // set RGB mode (instead of YUV) if device HRSI
+    // resolution is > GPU max texture size since
+    // GPUImage doesn't support YUV downsampling
+}
+
 - (AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position {
     // on iPhone, if available, use triple camera
     AVCaptureDevice *preferredDevice = nil;
