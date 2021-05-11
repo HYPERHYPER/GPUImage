@@ -12,4 +12,6 @@
     GPUImageHSBFilter *hsbFilter;
 }
 
+@property (nonatomic, assign) CGFloat smoothIntensity;
+
 @end

@@ -73,6 +73,8 @@ NSString *const kGPUImageBeautifyFragmentShaderString = SHADER_STRING
         return nil;
     }
     
+    self.smoothIntensity = 0.5;
+    
     // First pass: face smoothing filter
     bilateralFilter = [[GPUImageBilateralFilter alloc] init];
     bilateralFilter.distanceNormalizationFactor = 4.0;
@@ -100,6 +102,10 @@ NSString *const kGPUImageBeautifyFragmentShaderString = SHADER_STRING
     self.terminalFilter = hsbFilter;
     
     return self;
+}
+
+- (void)setSmoothIntensity:(CGFloat)smoothIntensity {
+    [combinationFilter setIntensity:smoothIntensity];
 }
 
 #pragma mark -
