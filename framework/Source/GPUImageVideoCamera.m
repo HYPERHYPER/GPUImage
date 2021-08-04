@@ -70,7 +70,16 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     return self;
 }
 
-- (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition; 
+- (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition {
+    if (!(self = [self initWithSessionPreset:AVCaptureSessionPreset640x480 cameraPosition:AVCaptureDevicePositionBack preferredDeviceTypes:@[]]))
+    {
+        return nil;
+    }
+    
+    return self;
+}
+
+- (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition preferredDeviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes
 {
 	if (!(self = [super init]))
     {
@@ -91,7 +100,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     _preferredConversion = kColorConversion709;
     
 	// Grab the back-facing or front-facing camera
-    _inputCamera = [self preferredDeviceForPosition:cameraPosition];
+    _inputCamera = [self preferredDeviceForPosition:cameraPosition deviceTypes:deviceTypes];
     
     if (!_inputCamera) {
         return nil;
@@ -372,7 +381,8 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         currentCameraPosition = AVCaptureDevicePositionBack;
     }
     
-    AVCaptureDevice *backFacingCamera = [self preferredDeviceForPosition:currentCameraPosition];
+    // TODO: support wide angle here
+    AVCaptureDevice *backFacingCamera = [self preferredDeviceForPosition:currentCameraPosition deviceTypes:@[]];
     
     newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:backFacingCamera error:&error];
     
@@ -405,7 +415,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     // GPUImage doesn't support YUV downsampling
 }
 
-- (AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position {
+- (AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes {
     // on iPhone, if available, use triple camera
     AVCaptureDevice *preferredDevice = nil;
     BOOL iPhone = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
@@ -416,13 +426,19 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     }
     
     if (preferredDevice == nil) {
-        NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-        for (AVCaptureDevice *device in devices)
-        {
-            if ([device position] == position)
+        if (deviceTypes.count == 0) {
+            NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+            for (AVCaptureDevice *device in devices)
             {
-                preferredDevice = device;
+                if ([device position] == position)
+                {
+                    preferredDevice = device;
+                }
             }
+        }
+        else {
+            AVCaptureDeviceDiscoverySession *discoverySession = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:deviceTypes mediaType:AVMediaTypeVideo position:position];
+            preferredDevice = discoverySession.devices.firstObject;
         }
     }
     return preferredDevice;
