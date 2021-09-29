@@ -62,9 +62,18 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
 #pragma mark -
 #pragma mark Initialization and teardown
 
-- (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition;
+- (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition {
+    if (!(self = [self initWithSessionPreset:sessionPreset cameraPosition:cameraPosition preferredDeviceTypes:@[]]))
+    {
+        return nil;
+    }
+    
+    return self;
+}
+
+- (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition preferredDeviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes
 {
-    if (!(self = [super initWithSessionPreset:sessionPreset cameraPosition:cameraPosition]))
+    if (!(self = [super initWithSessionPreset:sessionPreset cameraPosition:cameraPosition preferredDeviceTypes:deviceTypes]))
     {
 		return nil;
     }
