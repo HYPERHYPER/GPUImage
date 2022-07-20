@@ -42,14 +42,32 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     CVPixelBufferRelease(pixel_buffer);
 }
 
+@interface GPUImageStillCaptureInfo: NSObject
+
+@property (nonatomic, strong) GPUImageOutput<GPUImageInput> *finalFilterInChain;
+@property (nonatomic, copy) void (^handler)(NSError *);
+
+@end
+
+@implementation GPUImageStillCaptureInfo
+
+-(instancetype)initWithFinalFilter:(GPUImageOutput<GPUImageInput> *)finalFilter handler:(void(^)(NSError *))handler {
+    if (self = [super init]) {
+        self.finalFilterInChain = finalFilter;
+        self.handler = handler;
+    }
+    return self;
+}
+
+@end
+
 @interface GPUImageStillCamera () <AVCapturePhotoCaptureDelegate>
 {
     AVCapturePhotoOutput *photoOutput;
 }
 
 @property (nonatomic, strong) AVCapturePhotoSettings *photoCaptureSettings;
-@property (nonatomic, strong) GPUImageOutput<GPUImageInput> *finalFilterInChain;
-@property (nonatomic, copy) void (^handler)(NSError *);
+@property (nonatomic, strong) GPUImageStillCaptureInfo *currentCaptureInfo;
 
 // Methods calling this are responsible for calling dispatch_semaphore_signal(frameRenderingSemaphore) somewhere inside the block
 - (void)capturePhotoProcessedUpToFilter:(GPUImageOutput<GPUImageInput> *)finalFilterInChain withImageOnGPUHandler:(void (^)(NSError *error))block;
@@ -129,21 +147,17 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
         
         if (supportsFullYUVRange)
         {
-            // TODO: apply settings at time of capture?
             self.photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:@{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) }];
-            //[photoOutput setOutputSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_420YpCbCr8BiPlanarFullRange] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
         }
         else
         {
             self.photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:@{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) }];
-//            [photoOutput setOutputSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
         }
     }
     else
     {
         captureAsYUV = NO;
         self.photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:@{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA) }];
-//        [photoOutput setOutputSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
         [videoOutput setVideoSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
     }
 }
@@ -306,8 +320,7 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
 
     AVCapturePhotoSettings *settings = [AVCapturePhotoSettings photoSettingsFromPhotoSettings:self.photoCaptureSettings]; // it is illegal to use the same settings for two photos, so make a copy here
-    self.finalFilterInChain = finalFilterInChain;
-    self.handler = block;
+    self.currentCaptureInfo = [[GPUImageStillCaptureInfo alloc] initWithFinalFilter:finalFilterInChain handler:block];
     [photoOutput capturePhotoWithSettings:settings delegate:self];
 }
 
@@ -318,11 +331,11 @@ didFinishProcessingPhoto:(AVCapturePhoto *)photo
                 error:(NSError *)error {
     
     if (error != nil) {
-        self.handler(error);
+        self.currentCaptureInfo.handler(error);
     }
     else if (photo.pixelBuffer == nil) {
         NSError *error = [[NSError alloc] initWithDomain:NSStringFromClass(self.class) code:0 userInfo:@{ NSLocalizedDescriptionKey: @"AVCapturePhotoOutput.pixelBuffer was nil" }];
-        self.handler(error);
+        self.currentCaptureInfo.handler(error);
     }
     
     CMTime frameTime = CMTimeMake(1, 30);
@@ -342,7 +355,7 @@ didFinishProcessingPhoto:(AVCapturePhoto *)photo
                                              &imageSampleBuffer);
     
     if(imageSampleBuffer == NULL){
-        self.handler(error);
+        self.currentCaptureInfo.handler(error);
         return;
     }
 
@@ -365,7 +378,7 @@ didFinishProcessingPhoto:(AVCapturePhoto *)photo
         }
 
         dispatch_semaphore_signal(frameRenderingSemaphore);
-        [self.finalFilterInChain useNextFrameForImageCapture];
+        [self.currentCaptureInfo.finalFilterInChain useNextFrameForImageCapture];
         [self captureOutput:photoOutput didOutputSampleBuffer:sampleBuffer fromConnection:[[photoOutput connections] objectAtIndex:0]];
         dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
         if (sampleBuffer != NULL)
@@ -378,7 +391,7 @@ didFinishProcessingPhoto:(AVCapturePhoto *)photo
         if ( (currentCameraPosition != AVCaptureDevicePositionFront) || (![GPUImageContext supportsFastTextureUpload]) || !requiresFrontCameraTextureCacheCorruptionWorkaround)
         {
             dispatch_semaphore_signal(frameRenderingSemaphore);
-            [self.finalFilterInChain useNextFrameForImageCapture];
+            [self.currentCaptureInfo.finalFilterInChain useNextFrameForImageCapture];
             [self captureOutput:photoOutput didOutputSampleBuffer:imageSampleBuffer fromConnection:[[photoOutput connections] objectAtIndex:0]];
             dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
         }
@@ -387,7 +400,7 @@ didFinishProcessingPhoto:(AVCapturePhoto *)photo
     CFDictionaryRef metadata = CMCopyDictionaryOfAttachments(NULL, imageSampleBuffer, kCMAttachmentMode_ShouldPropagate);
     _currentCaptureMetadata = (__bridge_transfer NSDictionary *)metadata;
 
-    self.handler(nil);
+    self.currentCaptureInfo.handler(nil);
 
     _currentCaptureMetadata = nil;
 }
