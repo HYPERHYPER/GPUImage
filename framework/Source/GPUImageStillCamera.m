@@ -66,8 +66,8 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     AVCapturePhotoOutput *photoOutput;
 }
 
-@property (nonatomic, strong) AVCapturePhotoSettings *photoCaptureSettings;
 @property (nonatomic, strong) GPUImageStillCaptureInfo *currentCaptureInfo;
+@property (nonatomic, strong) NSDictionary<NSString *, id> *photoSettingsFormat;
 
 // Methods calling this are responsible for calling dispatch_semaphore_signal(frameRenderingSemaphore) somewhere inside the block
 - (void)capturePhotoProcessedUpToFilter:(GPUImageOutput<GPUImageInput> *)finalFilterInChain withImageOnGPUHandler:(void (^)(NSError *error))block;
@@ -147,17 +147,17 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
         
         if (supportsFullYUVRange)
         {
-            self.photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:@{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) }];
+            self.photoSettingsFormat = @{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) };
         }
         else
         {
-            self.photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:@{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) }];
+            self.photoSettingsFormat = @{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) };
         }
     }
     else
     {
         captureAsYUV = NO;
-        self.photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:@{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA) }];
+        self.photoSettingsFormat = @{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA) };
         [videoOutput setVideoSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
     }
 }
@@ -318,8 +318,8 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
 - (void)capturePhotoProcessedUpToFilter:(GPUImageOutput<GPUImageInput> *)finalFilterInChain withImageOnGPUHandler:(void (^)(NSError *error))block
 {
     dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
-
-    AVCapturePhotoSettings *settings = [AVCapturePhotoSettings photoSettingsFromPhotoSettings:self.photoCaptureSettings]; // it is illegal to use the same settings for two photos, so make a copy here
+    // it is illegal to use the same settings for two photos, so create new before each capture
+    AVCapturePhotoSettings *settings = [self createPhotoSettings];
     self.currentCaptureInfo = [[GPUImageStillCaptureInfo alloc] initWithFinalFilter:finalFilterInChain handler:block];
     [photoOutput capturePhotoWithSettings:settings delegate:self];
 }
@@ -403,6 +403,12 @@ didFinishProcessingPhoto:(AVCapturePhoto *)photo
     self.currentCaptureInfo.handler(nil);
 
     _currentCaptureMetadata = nil;
+}
+
+- (AVCapturePhotoSettings *) createPhotoSettings {
+    AVCapturePhotoSettings *photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:self.photoSettingsFormat];
+    photoCaptureSettings.flashMode = self.flashMode;
+    return photoCaptureSettings;
 }
 
 @end
