@@ -143,6 +143,11 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
  */
 - (void)rotateCamera;
 
+/**
+ This lets you switch between external and internal cameras. Can also be used to rotate camera.
+ */
+- (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes;
+
 /// @name Benchmarking
 
 /** When benchmarking is enabled, this will keep a running average of the time from uploading, processing, and final recording or display

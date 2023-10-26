@@ -368,8 +368,6 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 	if (self.frontFacingCameraPresent == NO)
 		return;
 	
-    NSError *error;
-    AVCaptureDeviceInput *newVideoInput;
     AVCaptureDevicePosition currentCameraPosition = [[videoInput device] position];
     
     if (currentCameraPosition == AVCaptureDevicePositionBack)
@@ -381,10 +379,18 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         currentCameraPosition = AVCaptureDevicePositionBack;
     }
     
-    // TODO: support wide angle here
-    AVCaptureDevice *backFacingCamera = [self preferredDeviceForPosition:currentCameraPosition deviceTypes:@[]];
+    [self preferDeviceWithPosition:currentCameraPosition deviceTypes:@[]];
+}
+
+- (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes 
+{
+    NSError *error;
+    AVCaptureDeviceInput *newVideoInput;
     
-    newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:backFacingCamera error:&error];
+    // TODO: support wide angle here
+    AVCaptureDevice *newCamera = [self preferredDeviceForPosition:position deviceTypes:deviceTypes];
+    
+    newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:newCamera error:&error];
     
     if (newVideoInput != nil)
     {
@@ -404,7 +410,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         [_captureSession commitConfiguration];
     }
     
-    _inputCamera = backFacingCamera;
+    _inputCamera = newCamera;
     [self setOutputImageOrientation:_outputImageOrientation];
 }
 
@@ -959,7 +965,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         if (captureAsYUV && [GPUImageContext supportsFastTextureUpload])
         {
             outputRotation = kGPUImageNoRotation;
-            if ([self cameraPosition] == AVCaptureDevicePositionBack)
+            if ([self cameraPosition] == AVCaptureDevicePositionBack || [self cameraPosition] == AVCaptureDevicePositionUnspecified) // use unspecified for external camera
             {
                 if (_horizontallyMirrorRearFacingCamera)
                 {
