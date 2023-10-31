@@ -41,6 +41,8 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     BOOL addedAudioInputsDueToEncodingTarget;
 }
 
+@property (nonatomic, strong) dispatch_queue_t sessionQueue;
+
 - (void)updateOrientationSendToTargets;
 - (void)convertYUVToRGBOutput;
 
@@ -86,6 +88,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 		return nil;
     }
     
+    self.sessionQueue = dispatch_queue_create("session queue", DISPATCH_QUEUE_SERIAL); // TODO: maybe move camera processing onto this queue, too
     cameraProcessingQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH,0);
 	audioProcessingQueue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW,0);
 
@@ -379,39 +382,36 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         currentCameraPosition = AVCaptureDevicePositionBack;
     }
     
-    [self preferDeviceWithPosition:currentCameraPosition deviceTypes:@[]];
+    AVCaptureDevice *newCamera = [self preferredDeviceForPosition:currentCameraPosition deviceTypes:@[]];
+    [self changeCamera:newCamera];
 }
 
-- (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes 
-{
-    NSError *error;
-    AVCaptureDeviceInput *newVideoInput;
-    
-    // TODO: support wide angle here
-    AVCaptureDevice *newCamera = [self preferredDeviceForPosition:position deviceTypes:deviceTypes];
-    
-    newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:newCamera error:&error];
-    
-    if (newVideoInput != nil)
-    {
-        [_captureSession beginConfiguration];
+- (void) changeCamera:(AVCaptureDevice *)newCamera {
+    [self onSessionQueue:^(GPUImageVideoCamera *) {
         
-        [_captureSession removeInput:videoInput];
-        if ([_captureSession canAddInput:newVideoInput])
+        NSError *error;
+        AVCaptureDeviceInput *newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:newCamera error:&error];
+        
+        if (newVideoInput != nil)
         {
-            [_captureSession addInput:newVideoInput];
-            videoInput = newVideoInput;
+            [_captureSession beginConfiguration];
+            [_captureSession removeInput:videoInput];
+            
+            if ([_captureSession canAddInput:newVideoInput])
+            {
+                [_captureSession addInput:newVideoInput];
+                videoInput = newVideoInput;
+            }
+            else
+            {
+                [_captureSession addInput:videoInput];
+            }
+            [_captureSession commitConfiguration];
         }
-        else
-        {
-            [_captureSession addInput:videoInput];
-        }
-        //captureSession.sessionPreset = oriPreset;
-        [_captureSession commitConfiguration];
-    }
-    
-    _inputCamera = newCamera;
-    [self setOutputImageOrientation:_outputImageOrientation];
+        
+        _inputCamera = newCamera;
+        [self setOutputImageOrientation:_outputImageOrientation];
+    }];
 }
 
 - (void)updatePhotoOutputSettings {
@@ -886,6 +886,26 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 	glVertexAttribPointer(yuvConversionTextureCoordinateAttribute, 2, GL_FLOAT, 0, 0, [GPUImageFilter textureCoordinatesForRotation:internalRotation]);
     
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#pragma mark -
+#pragma mark Session Queue
+
+- (void)onSessionQueue: (void(^)(GPUImageVideoCamera *))block {
+    if (![self isSessionQueue]) {
+        dispatch_async (self.sessionQueue, ^(void) {
+            [self onSessionQueue:(block)];
+        });
+        return;
+    }
+    block(self);
+}
+
+- (BOOL)isSessionQueue {
+    const char *queueLabel = dispatch_queue_get_label(DISPATCH_CURRENT_QUEUE_LABEL);
+    const char *targetQueueLabel = dispatch_queue_get_label(self.sessionQueue);
+    
+    return strcmp(queueLabel, targetQueueLabel) == 0;
 }
 
 #pragma mark -

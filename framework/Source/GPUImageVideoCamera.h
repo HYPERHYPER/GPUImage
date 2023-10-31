@@ -76,6 +76,8 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 
 @property(nonatomic, assign) id<GPUImageVideoCameraDelegate> delegate;
 
+@property (nonatomic, readonly) dispatch_queue_t sessionQueue;
+
 /// @name Initialization and teardown
 
 /** Begin a capture session
@@ -144,9 +146,16 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 - (void)rotateCamera;
 
 /**
+ Find the preferred device that meets the requirements
+ */
+- (AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes;
+
+/**
  This lets you switch between external and internal cameras. Can also be used to rotate camera.
  */
 - (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes;
+
+- (void) changeCamera:(AVCaptureDevice *)newCamera;
 
 /// @name Benchmarking
 
@@ -160,5 +169,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 + (BOOL)isFrontFacingCameraPresent;
 
 - (void)updatePhotoOutputSettings;
+
+- (void)onSessionQueue: (void(^)(GPUImageVideoCamera *))block;
 
 @end
