@@ -445,6 +445,10 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
             AVCaptureDeviceDiscoverySession *discoverySession = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:deviceTypes mediaType:AVMediaTypeVideo position:position];
             preferredDevice = discoverySession.devices.firstObject;
         }
+        
+        if (preferredDevice == nil) {
+            return [self preferredDeviceForPosition:AVCaptureDevicePositionFront deviceTypes:@[]];
+        }
     }
     return preferredDevice;
 }
