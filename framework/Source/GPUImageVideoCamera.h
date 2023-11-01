@@ -144,9 +144,19 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 - (void)rotateCamera;
 
 /**
+ Find the preferred device that meets the requirements
+ */
+- (AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes;
+
+/**
  This lets you switch between external and internal cameras. Can also be used to rotate camera.
  */
 - (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes;
+
+/**
+ Changes the session input source to the newCamera
+ */
+- (void) changeCamera:(AVCaptureDevice *)newCamera;
 
 /// @name Benchmarking
 

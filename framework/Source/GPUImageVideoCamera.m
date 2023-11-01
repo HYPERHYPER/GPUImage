@@ -379,24 +379,19 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         currentCameraPosition = AVCaptureDevicePositionBack;
     }
     
-    [self preferDeviceWithPosition:currentCameraPosition deviceTypes:@[]];
+    AVCaptureDevice *newCamera = [self preferredDeviceForPosition:currentCameraPosition deviceTypes:@[]];
+    [self changeCamera:newCamera];
 }
 
-- (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes 
-{
+- (void) changeCamera:(AVCaptureDevice *)newCamera {
     NSError *error;
-    AVCaptureDeviceInput *newVideoInput;
-    
-    // TODO: support wide angle here
-    AVCaptureDevice *newCamera = [self preferredDeviceForPosition:position deviceTypes:deviceTypes];
-    
-    newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:newCamera error:&error];
+    AVCaptureDeviceInput *newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:newCamera error:&error];
     
     if (newVideoInput != nil)
     {
         [_captureSession beginConfiguration];
-        
         [_captureSession removeInput:videoInput];
+        
         if ([_captureSession canAddInput:newVideoInput])
         {
             [_captureSession addInput:newVideoInput];
@@ -406,7 +401,6 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         {
             [_captureSession addInput:videoInput];
         }
-        //captureSession.sessionPreset = oriPreset;
         [_captureSession commitConfiguration];
     }
     
@@ -419,6 +413,11 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     // set RGB mode (instead of YUV) if device HRSI
     // resolution is > GPU max texture size since
     // GPUImage doesn't support YUV downsampling
+}
+
+- (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes {
+    AVCaptureDevice *preferredCamera = [self preferredDeviceForPosition:position deviceTypes:deviceTypes];
+    [self changeCamera:preferredCamera];
 }
 
 - (AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes {
