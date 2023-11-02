@@ -102,9 +102,9 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 	// Grab the back-facing or front-facing camera
     _inputCamera = [self preferredDeviceForPosition:cameraPosition deviceTypes:deviceTypes];
     
-    if (!_inputCamera) {
-        return nil;
-    }
+//    if (!_inputCamera) {
+//        return nil;
+//    }
     
 	// Create the capture session
 	_captureSession = [[AVCaptureSession alloc] init];
