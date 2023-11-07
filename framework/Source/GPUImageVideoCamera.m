@@ -387,10 +387,12 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     NSError *error;
     AVCaptureDeviceInput *newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:newCamera error:&error];
     
+    [_captureSession beginConfiguration];
+    [_captureSession removeInput:videoInput];
+    
     if (newVideoInput != nil)
     {
-        [_captureSession beginConfiguration];
-        [_captureSession removeInput:videoInput];
+        
         
         if ([_captureSession canAddInput:newVideoInput])
         {
@@ -401,8 +403,11 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         {
             [_captureSession addInput:videoInput];
         }
-        [_captureSession commitConfiguration];
+        
+    } else {
+        videoInput = nil;
     }
+    [_captureSession commitConfiguration];
     
     _inputCamera = newCamera;
     [self setOutputImageOrientation:_outputImageOrientation];
