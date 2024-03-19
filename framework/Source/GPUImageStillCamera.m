@@ -332,10 +332,12 @@ didFinishProcessingPhoto:(AVCapturePhoto *)photo
     
     if (error != nil) {
         self.currentCaptureInfo.handler(error);
+        return;
     }
     else if (photo.pixelBuffer == nil) {
         NSError *error = [[NSError alloc] initWithDomain:NSStringFromClass(self.class) code:0 userInfo:@{ NSLocalizedDescriptionKey: @"AVCapturePhotoOutput.pixelBuffer was nil" }];
         self.currentCaptureInfo.handler(error);
+        return;
     }
     
     CMTime frameTime = CMTimeMake(1, 30);
