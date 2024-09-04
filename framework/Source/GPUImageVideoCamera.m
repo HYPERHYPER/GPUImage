@@ -81,6 +81,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 
 - (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition preferredDeviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes
 {
+    NSLog(@"xx initing GPUImageVideoCamera %@", self);
 	if (!(self = [super init]))
     {
 		return nil;
@@ -239,6 +240,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 
 - (void)dealloc 
 {
+    NSLog(@"xx dealloc'ing GPUImageVideoCamera %@", self);
     [self stopCameraCapture];
     [videoOutput setSampleBufferDelegate:nil queue:dispatch_get_main_queue()];
     [audioOutput setSampleBufferDelegate:nil queue:dispatch_get_main_queue()];
@@ -921,10 +923,12 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     }
     else if (captureOutput == audioOutput)
     {
+        NSLog(@"audio");
         [self processAudioSampleBuffer:sampleBuffer];
     }
     else
     {
+        NSLog(@"video");
         if (dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_NOW) != 0)
         {
             return;
