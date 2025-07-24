@@ -66,7 +66,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 @property(readwrite, nonatomic) BOOL runBenchmark;
 
 /// Use this property to manage camera settings. Focus point, exposure point, etc.
-@property(readonly) AVCaptureDevice *inputCamera;
+@property(readonly, nullable) AVCaptureDevice *inputCamera;
 
 /// This determines the rotation applied to the output image, based on the source material
 @property(readwrite, nonatomic) UIInterfaceOrientation outputImageOrientation;
