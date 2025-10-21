@@ -71,6 +71,9 @@ void setColorConversion709(GLfloat conversionMatrix[9] );
 /// Use this property to manage camera settings. Focus point, exposure point, etc.
 @property(readonly, nullable) AVCaptureDevice *inputCamera;
 
+/// Use this property to learn what rotation angle to apply to the device to make things look right side up
+@property(readonly, nullable) AVCaptureDeviceRotationCoordinator *rotationCoordinator API_AVAILABLE(ios(17.0));
+
 /// This determines the rotation applied to the output image, based on the source material
 @property(readwrite, nonatomic) UIInterfaceOrientation outputImageOrientation;
 

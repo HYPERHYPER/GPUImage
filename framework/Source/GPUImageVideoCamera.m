@@ -41,6 +41,8 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     BOOL addedAudioInputsDueToEncodingTarget;
 }
 
+@property(strong, nullable) AVCaptureDeviceRotationCoordinator *rotationCoordinator API_AVAILABLE(ios(17.0));
+
 - (void)updateOrientationSendToTargets;
 - (void)convertYUVToRGBOutput;
 
@@ -410,6 +412,16 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     [_captureSession commitConfiguration];
     
     _inputCamera = newCamera;
+    
+    // Update rotation coordinator for the new device
+    if (@available(iOS 17.0, *)) {
+        if (_inputCamera != nil) {
+            self.rotationCoordinator = [[AVCaptureDeviceRotationCoordinator alloc] initWithDevice:_inputCamera previewLayer:nil];
+        } else {
+            self.rotationCoordinator = nil;
+        }
+    }
+    
     [self setOutputImageOrientation:_outputImageOrientation];
 }
 
