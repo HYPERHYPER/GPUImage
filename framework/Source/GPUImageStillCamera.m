@@ -410,6 +410,7 @@ didFinishProcessingPhoto:(AVCapturePhoto *)photo
 - (AVCapturePhotoSettings *) createPhotoSettings {
     AVCapturePhotoSettings *photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:self.photoSettingsFormat];
     photoCaptureSettings.flashMode = self.flashMode ? AVCaptureFlashModeOn : AVCaptureFlashModeOff;
+    photoCaptureSettings.highResolutionPhotoEnabled = YES;
     return photoCaptureSettings;
 }
 
