@@ -6,16 +6,19 @@
 #import "GPUImageColorConversion.h"
 
 //Optionally override the YUV to RGB matrices
-void setColorConversion601( GLfloat conversionMatrix[9] );
-void setColorConversion601FullRange( GLfloat conversionMatrix[9] );
-void setColorConversion709( GLfloat conversionMatrix[9] );
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnullability-completeness"
+void setColorConversion601(GLfloat conversionMatrix[9] );
+void setColorConversion601FullRange(GLfloat conversionMatrix[9] );
+void setColorConversion709(GLfloat conversionMatrix[9] );
+#pragma clang diagnostic pop
 
 
 //Delegate Protocal for Face Detection.
 @protocol GPUImageVideoCameraDelegate <NSObject>
 
 @optional
-- (void)willOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer;
+- (void)willOutputSampleBuffer:(nonnull CMSampleBufferRef)sampleBuffer;
 @end
 
 
@@ -47,10 +50,10 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 @property(readonly, nonatomic) BOOL isRunning;
 
 /// The AVCaptureSession used to capture from the camera
-@property(readonly, retain, nonatomic) AVCaptureSession *captureSession;
+@property(readonly, retain, nonatomic, nonnull) AVCaptureSession *captureSession;
 
 /// This enables the capture session preset to be changed on the fly
-@property (readwrite, nonatomic, copy) NSString *captureSessionPreset;
+@property (readwrite, nonatomic, copy, nonnull) NSString *captureSessionPreset;
 
 /// This sets the frame rate of the camera (iOS 5 and above only)
 /**
@@ -66,7 +69,10 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 @property(readwrite, nonatomic) BOOL runBenchmark;
 
 /// Use this property to manage camera settings. Focus point, exposure point, etc.
-@property(readonly) AVCaptureDevice *inputCamera;
+@property(readonly, nullable) AVCaptureDevice *inputCamera;
+
+/// Use this property to learn what rotation angle to apply to the device to make things look right side up
+@property(readonly, nullable) AVCaptureDeviceRotationCoordinator *rotationCoordinator API_AVAILABLE(ios(17.0));
 
 /// This determines the rotation applied to the output image, based on the source material
 @property(readwrite, nonatomic) UIInterfaceOrientation outputImageOrientation;
@@ -74,7 +80,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 /// These properties determine whether or not the two camera orientations should be mirrored. By default, both are NO.
 @property(readwrite, nonatomic) BOOL horizontallyMirrorFrontFacingCamera, horizontallyMirrorRearFacingCamera;
 
-@property(nonatomic, assign) id<GPUImageVideoCameraDelegate> delegate;
+@property(nonatomic, assign, nullable) id<GPUImageVideoCameraDelegate> delegate;
 
 /// @name Initialization and teardown
 
@@ -85,8 +91,8 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
  @param sessionPreset Session preset to use
  @param cameraPosition Camera to capture from
  */
-- (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition;
-- (id)initWithSessionPreset:(NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition preferredDeviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes;
+- (nullable id)initWithSessionPreset:(nonnull NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition;
+- (nullable id)initWithSessionPreset:(nonnull NSString *)sessionPreset cameraPosition:(AVCaptureDevicePosition)cameraPosition preferredDeviceTypes:(nonnull NSArray<AVCaptureDeviceType> *)deviceTypes;
 
 /** Add audio capture to the session. Adding inputs and outputs freezes the capture session momentarily, so you
     can use this method to add the audio inputs and outputs early, if you're going to set the audioEncodingTarget 
@@ -124,12 +130,12 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 /** Process a video sample
  @param sampleBuffer Buffer to process
  */
-- (void)processVideoSampleBuffer:(CMSampleBufferRef)sampleBuffer;
+- (void)processVideoSampleBuffer:(nonnull CMSampleBufferRef)sampleBuffer;
 
 /** Process an audio sample
  @param sampleBuffer Buffer to process
  */
-- (void)processAudioSampleBuffer:(CMSampleBufferRef)sampleBuffer;
+- (void)processAudioSampleBuffer:(nonnull CMSampleBufferRef)sampleBuffer;
 
 /** Get the position (front, rear) of the source camera
  */
@@ -137,11 +143,26 @@ void setColorConversion709( GLfloat conversionMatrix[9] );
 
 /** Get the AVCaptureConnection of the source camera
  */
-- (AVCaptureConnection *)videoCaptureConnection;
+- (nullable AVCaptureConnection *)videoCaptureConnection;
 
 /** This flips between the front and rear cameras
  */
 - (void)rotateCamera;
+
+/**
+ Find the preferred device that meets the requirements
+ */
+- (nullable AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position deviceTypes:(nonnull NSArray<AVCaptureDeviceType> *)deviceTypes;
+
+/**
+ This lets you switch between external and internal cameras. Can also be used to rotate camera.
+ */
+- (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(nonnull NSArray<AVCaptureDeviceType> *)deviceTypes;
+
+/**
+ Changes the session input source to the newCamera
+ */
+- (void) changeCamera:(nullable AVCaptureDevice *)newCamera;
 
 /// @name Benchmarking
 

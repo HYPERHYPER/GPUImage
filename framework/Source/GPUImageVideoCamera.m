@@ -41,6 +41,9 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     BOOL addedAudioInputsDueToEncodingTarget;
 }
 
+@property(strong, nullable) AVCaptureDeviceRotationCoordinator *rotationCoordinator API_AVAILABLE(ios(17.0));
+@property(strong, nullable) AVCaptureDevice *inputCamera;
+
 - (void)updateOrientationSendToTargets;
 - (void)convertYUVToRGBOutput;
 
@@ -50,7 +53,6 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 
 @synthesize captureSessionPreset = _captureSessionPreset;
 @synthesize captureSession = _captureSession;
-@synthesize inputCamera = _inputCamera;
 @synthesize runBenchmark = _runBenchmark;
 @synthesize outputImageOrientation = _outputImageOrientation;
 @synthesize delegate = _delegate;
@@ -100,11 +102,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     _preferredConversion = kColorConversion709;
     
 	// Grab the back-facing or front-facing camera
-    _inputCamera = [self preferredDeviceForPosition:cameraPosition deviceTypes:deviceTypes];
-    
-    if (!_inputCamera) {
-        return nil;
-    }
+    self.inputCamera = [self preferredDeviceForPosition:cameraPosition deviceTypes:deviceTypes];
     
 	// Create the capture session
 	_captureSession = [[AVCaptureSession alloc] init];
@@ -113,8 +111,8 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     
 	// Add the video input	
 	NSError *error = nil;
-	videoInput = [[AVCaptureDeviceInput alloc] initWithDevice:_inputCamera error:&error];
-	if ([_captureSession canAddInput:videoInput]) 
+	videoInput = [[AVCaptureDeviceInput alloc] initWithDevice:self.inputCamera error:&error];
+	if ([_captureSession canAddInput:videoInput])
 	{
 		[_captureSession addInput:videoInput];
 	}
@@ -368,8 +366,6 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 	if (self.frontFacingCameraPresent == NO)
 		return;
 	
-    NSError *error;
-    AVCaptureDeviceInput *newVideoInput;
     AVCaptureDevicePosition currentCameraPosition = [[videoInput device] position];
     
     if (currentCameraPosition == AVCaptureDevicePositionBack)
@@ -381,16 +377,21 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         currentCameraPosition = AVCaptureDevicePositionBack;
     }
     
-    // TODO: support wide angle here
-    AVCaptureDevice *backFacingCamera = [self preferredDeviceForPosition:currentCameraPosition deviceTypes:@[]];
+    AVCaptureDevice *newCamera = [self preferredDeviceForPosition:currentCameraPosition deviceTypes:@[]];
+    [self changeCamera:newCamera];
+}
+
+- (void) changeCamera:(AVCaptureDevice *)newCamera {
+    NSError *error;
+    AVCaptureDeviceInput *newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:newCamera error:&error];
     
-    newVideoInput = [[AVCaptureDeviceInput alloc] initWithDevice:backFacingCamera error:&error];
+    [_captureSession beginConfiguration];
+    [_captureSession removeInput:videoInput];
     
     if (newVideoInput != nil)
     {
-        [_captureSession beginConfiguration];
         
-        [_captureSession removeInput:videoInput];
+        
         if ([_captureSession canAddInput:newVideoInput])
         {
             [_captureSession addInput:newVideoInput];
@@ -400,11 +401,14 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         {
             [_captureSession addInput:videoInput];
         }
-        //captureSession.sessionPreset = oriPreset;
-        [_captureSession commitConfiguration];
+        
+    } else {
+        videoInput = nil;
     }
+    [_captureSession commitConfiguration];
     
-    _inputCamera = backFacingCamera;
+    self.inputCamera = newCamera;
+    
     [self setOutputImageOrientation:_outputImageOrientation];
 }
 
@@ -413,6 +417,11 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
     // set RGB mode (instead of YUV) if device HRSI
     // resolution is > GPU max texture size since
     // GPUImage doesn't support YUV downsampling
+}
+
+- (void)preferDeviceWithPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes {
+    AVCaptureDevice *preferredCamera = [self preferredDeviceForPosition:position deviceTypes:deviceTypes];
+    [self changeCamera:preferredCamera];
 }
 
 - (AVCaptureDevice *)preferredDeviceForPosition:(AVCaptureDevicePosition)position deviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes {
@@ -440,6 +449,10 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
             AVCaptureDeviceDiscoverySession *discoverySession = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:deviceTypes mediaType:AVMediaTypeVideo position:position];
             preferredDevice = discoverySession.devices.firstObject;
         }
+        
+//        if (preferredDevice == nil) {
+//            return [self preferredDeviceForPosition:AVCaptureDevicePositionFront deviceTypes:@[]];
+//        }
     }
     return preferredDevice;
 }
@@ -501,18 +514,18 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 	
 	if (_frameRate > 0)
 	{
-		if ([_inputCamera respondsToSelector:@selector(setActiveVideoMinFrameDuration:)] &&
-            [_inputCamera respondsToSelector:@selector(setActiveVideoMaxFrameDuration:)]) {
+		if ([self.inputCamera respondsToSelector:@selector(setActiveVideoMinFrameDuration:)] &&
+            [self.inputCamera respondsToSelector:@selector(setActiveVideoMaxFrameDuration:)]) {
             
             NSError *error;
-            [_inputCamera lockForConfiguration:&error];
+            [self.inputCamera lockForConfiguration:&error];
             if (error == nil) {
 #if defined(__IPHONE_7_0)
-                [_inputCamera setActiveVideoMinFrameDuration:CMTimeMake(1, _frameRate)];
-                [_inputCamera setActiveVideoMaxFrameDuration:CMTimeMake(1, _frameRate)];
+                [self.inputCamera setActiveVideoMinFrameDuration:CMTimeMake(1, _frameRate)];
+                [self.inputCamera setActiveVideoMaxFrameDuration:CMTimeMake(1, _frameRate)];
 #endif
             }
-            [_inputCamera unlockForConfiguration];
+            [self.inputCamera unlockForConfiguration];
             
         } else {
             
@@ -532,18 +545,18 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 	}
 	else
 	{
-		if ([_inputCamera respondsToSelector:@selector(setActiveVideoMinFrameDuration:)] &&
-            [_inputCamera respondsToSelector:@selector(setActiveVideoMaxFrameDuration:)]) {
+		if ([self.inputCamera respondsToSelector:@selector(setActiveVideoMinFrameDuration:)] &&
+            [self.inputCamera respondsToSelector:@selector(setActiveVideoMaxFrameDuration:)]) {
             
             NSError *error;
-            [_inputCamera lockForConfiguration:&error];
+            [self.inputCamera lockForConfiguration:&error];
             if (error == nil) {
 #if defined(__IPHONE_7_0)
-                [_inputCamera setActiveVideoMinFrameDuration:kCMTimeInvalid];
-                [_inputCamera setActiveVideoMaxFrameDuration:kCMTimeInvalid];
+                [self.inputCamera setActiveVideoMinFrameDuration:kCMTimeInvalid];
+                [self.inputCamera setActiveVideoMaxFrameDuration:kCMTimeInvalid];
 #endif
             }
-            [_inputCamera unlockForConfiguration];
+            [self.inputCamera unlockForConfiguration];
             
         } else {
             
@@ -959,7 +972,7 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         if (captureAsYUV && [GPUImageContext supportsFastTextureUpload])
         {
             outputRotation = kGPUImageNoRotation;
-            if ([self cameraPosition] == AVCaptureDevicePositionBack)
+            if ([self cameraPosition] == AVCaptureDevicePositionBack || [self cameraPosition] == AVCaptureDevicePositionUnspecified) // use unspecified for external camera
             {
                 if (_horizontallyMirrorRearFacingCamera)
                 {
@@ -1088,6 +1101,20 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
 {
     _horizontallyMirrorRearFacingCamera = newValue;
     [self updateOrientationSendToTargets];
+}
+
+- (void)setInputCamera:(AVCaptureDevice *)inputCamera
+{
+    _inputCamera = inputCamera;
+    
+    // Update rotation coordinator for the new device
+    if (@available(iOS 17.0, *)) {
+        if (inputCamera != nil) {
+            self.rotationCoordinator = [[AVCaptureDeviceRotationCoordinator alloc] initWithDevice:inputCamera previewLayer:nil];
+        } else {
+            self.rotationCoordinator = nil;
+        }
+    }
 }
 
 @end

@@ -42,10 +42,32 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     CVPixelBufferRelease(pixel_buffer);
 }
 
-@interface GPUImageStillCamera ()
-{
-    AVCaptureStillImageOutput *photoOutput;
+@interface GPUImageStillCaptureInfo: NSObject
+
+@property (nonatomic, strong) GPUImageOutput<GPUImageInput> *finalFilterInChain;
+@property (nonatomic, copy) void (^handler)(NSError *);
+
+@end
+
+@implementation GPUImageStillCaptureInfo
+
+-(instancetype)initWithFinalFilter:(GPUImageOutput<GPUImageInput> *)finalFilter handler:(void(^)(NSError *))handler {
+    if (self = [super init]) {
+        self.finalFilterInChain = finalFilter;
+        self.handler = handler;
+    }
+    return self;
 }
+
+@end
+
+@interface GPUImageStillCamera () <AVCapturePhotoCaptureDelegate>
+{
+    AVCapturePhotoOutput *photoOutput;
+}
+
+@property (nonatomic, strong) GPUImageStillCaptureInfo *currentCaptureInfo;
+@property (nonatomic, strong) NSDictionary<NSString *, id> *photoSettingsFormat;
 
 // Methods calling this are responsible for calling dispatch_semaphore_signal(frameRenderingSemaphore) somewhere inside the block
 - (void)capturePhotoProcessedUpToFilter:(GPUImageOutput<GPUImageInput> *)finalFilterInChain withImageOnGPUHandler:(void (^)(NSError *error))block;
@@ -86,7 +108,7 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     
     [self.captureSession beginConfiguration];
     
-    photoOutput = [[AVCaptureStillImageOutput alloc] init];
+    photoOutput = [[AVCapturePhotoOutput alloc] init];
    
     // Having a still photo input set to BGRA and video to YUV doesn't work well, so since I don't have YUV resizing for iPhone 4 yet, kick back to BGRA for that device
 //    if (captureAsYUV && [GPUImageContext supportsFastTextureUpload])
@@ -114,7 +136,7 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     if (captureAsYUV && [GPUImageContext deviceSupportsRedTextures])
     {
         BOOL supportsFullYUVRange = NO;
-        NSArray *supportedPixelFormats = photoOutput.availableImageDataCVPixelFormatTypes;
+        NSArray *supportedPixelFormats = photoOutput.availablePhotoPixelFormatTypes;
         for (NSNumber *currentPixelFormat in supportedPixelFormats)
         {
             if ([currentPixelFormat intValue] == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
@@ -125,17 +147,17 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
         
         if (supportsFullYUVRange)
         {
-            [photoOutput setOutputSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_420YpCbCr8BiPlanarFullRange] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
+            self.photoSettingsFormat = @{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) };
         }
         else
         {
-            [photoOutput setOutputSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
+            self.photoSettingsFormat = @{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) };
         }
     }
     else
     {
         captureAsYUV = NO;
-        [photoOutput setOutputSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
+        self.photoSettingsFormat = @{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA) };
         [videoOutput setVideoSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
     }
 }
@@ -296,65 +318,100 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
 - (void)capturePhotoProcessedUpToFilter:(GPUImageOutput<GPUImageInput> *)finalFilterInChain withImageOnGPUHandler:(void (^)(NSError *error))block
 {
     dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
+    // it is illegal to use the same settings for two photos, so create new before each capture
+    AVCapturePhotoSettings *settings = [self createPhotoSettings];
+    self.currentCaptureInfo = [[GPUImageStillCaptureInfo alloc] initWithFinalFilter:finalFilterInChain handler:block];
+    [photoOutput capturePhotoWithSettings:settings delegate:self];
+}
 
-    if(photoOutput.isCapturingStillImage){
-        block([NSError errorWithDomain:AVFoundationErrorDomain code:AVErrorMaximumStillImageCaptureRequestsExceeded userInfo:nil]);
+#pragma mark - AVCapturePhotoCaptureDelegate
+
+- (void)captureOutput:(AVCapturePhotoOutput *)output
+didFinishProcessingPhoto:(AVCapturePhoto *)photo
+                error:(NSError *)error {
+    
+    if (error != nil) {
+        self.currentCaptureInfo.handler(error);
+        return;
+    }
+    else if (photo.pixelBuffer == nil) {
+        NSError *error = [[NSError alloc] initWithDomain:NSStringFromClass(self.class) code:0 userInfo:@{ NSLocalizedDescriptionKey: @"AVCapturePhotoOutput.pixelBuffer was nil" }];
+        self.currentCaptureInfo.handler(error);
+        return;
+    }
+    
+    CMTime frameTime = CMTimeMake(1, 30);
+    CMSampleTimingInfo timing = {frameTime, frameTime, kCMTimeInvalid};
+    
+//    CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixel_buffer, YES, NULL, NULL, videoInfo, &timing, sampleBuffer);
+    
+    CMSampleBufferRef imageSampleBuffer = nil;
+    
+    CMVideoFormatDescriptionRef videoInfo = NULL;
+    CMVideoFormatDescriptionCreateForImageBuffer(NULL, photo.pixelBuffer, &videoInfo);
+    
+    CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault,
+                                             photo.pixelBuffer,
+                                             videoInfo,
+                                             &timing,
+                                             &imageSampleBuffer);
+    
+    if(imageSampleBuffer == NULL){
+        self.currentCaptureInfo.handler(error);
         return;
     }
 
-    [photoOutput captureStillImageAsynchronouslyFromConnection:[[photoOutput connections] objectAtIndex:0] completionHandler:^(CMSampleBufferRef imageSampleBuffer, NSError *error) {
-        if(imageSampleBuffer == NULL){
-            block(error);
-            return;
-        }
-
-        // For now, resize photos to fix within the max texture size of the GPU
-        CVImageBufferRef cameraFrame = CMSampleBufferGetImageBuffer(imageSampleBuffer);
+    // For now, resize photos to fix within the max texture size of the GPU
+    CVImageBufferRef cameraFrame = CMSampleBufferGetImageBuffer(imageSampleBuffer);
+    
+    CGSize sizeOfPhoto = CGSizeMake(CVPixelBufferGetWidth(cameraFrame), CVPixelBufferGetHeight(cameraFrame));
+    CGSize scaledImageSizeToFitOnGPU = [GPUImageContext sizeThatFitsWithinATextureForSize:sizeOfPhoto];
+    if (!CGSizeEqualToSize(sizeOfPhoto, scaledImageSizeToFitOnGPU))
+    {
+        CMSampleBufferRef sampleBuffer = NULL;
         
-        CGSize sizeOfPhoto = CGSizeMake(CVPixelBufferGetWidth(cameraFrame), CVPixelBufferGetHeight(cameraFrame));
-        CGSize scaledImageSizeToFitOnGPU = [GPUImageContext sizeThatFitsWithinATextureForSize:sizeOfPhoto];
-        if (!CGSizeEqualToSize(sizeOfPhoto, scaledImageSizeToFitOnGPU))
+        if (CVPixelBufferGetPlaneCount(cameraFrame) > 0)
         {
-            CMSampleBufferRef sampleBuffer = NULL;
-            
-            if (CVPixelBufferGetPlaneCount(cameraFrame) > 0)
-            {
-                NSAssert(NO, @"Error: no downsampling for YUV input in the framework yet");
-            }
-            else
-            {
-                GPUImageCreateResizedSampleBuffer(cameraFrame, scaledImageSizeToFitOnGPU, &sampleBuffer);
-            }
-
-            dispatch_semaphore_signal(frameRenderingSemaphore);
-            [finalFilterInChain useNextFrameForImageCapture];
-            [self captureOutput:photoOutput didOutputSampleBuffer:sampleBuffer fromConnection:[[photoOutput connections] objectAtIndex:0]];
-            dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
-            if (sampleBuffer != NULL)
-                CFRelease(sampleBuffer);
+            NSAssert(NO, @"Error: no downsampling for YUV input in the framework yet");
         }
         else
         {
-            // This is a workaround for the corrupt images that are sometimes returned when taking a photo with the front camera and using the iOS 5.0 texture caches
-            AVCaptureDevicePosition currentCameraPosition = [[videoInput device] position];
-            if ( (currentCameraPosition != AVCaptureDevicePositionFront) || (![GPUImageContext supportsFastTextureUpload]) || !requiresFrontCameraTextureCacheCorruptionWorkaround)
-            {
-                dispatch_semaphore_signal(frameRenderingSemaphore);
-                [finalFilterInChain useNextFrameForImageCapture];
-                [self captureOutput:photoOutput didOutputSampleBuffer:imageSampleBuffer fromConnection:[[photoOutput connections] objectAtIndex:0]];
-                dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
-            }
+            GPUImageCreateResizedSampleBuffer(cameraFrame, scaledImageSizeToFitOnGPU, &sampleBuffer);
         }
-        
-        CFDictionaryRef metadata = CMCopyDictionaryOfAttachments(NULL, imageSampleBuffer, kCMAttachmentMode_ShouldPropagate);
-        _currentCaptureMetadata = (__bridge_transfer NSDictionary *)metadata;
 
-        block(nil);
+        dispatch_semaphore_signal(frameRenderingSemaphore);
+        [self.currentCaptureInfo.finalFilterInChain useNextFrameForImageCapture];
+        [self captureOutput:photoOutput didOutputSampleBuffer:sampleBuffer fromConnection:[[photoOutput connections] objectAtIndex:0]];
+        dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
+        if (sampleBuffer != NULL)
+            CFRelease(sampleBuffer);
+    }
+    else
+    {
+        // This is a workaround for the corrupt images that are sometimes returned when taking a photo with the front camera and using the iOS 5.0 texture caches
+        AVCaptureDevicePosition currentCameraPosition = [[videoInput device] position];
+        if ( (currentCameraPosition != AVCaptureDevicePositionFront) || (![GPUImageContext supportsFastTextureUpload]) || !requiresFrontCameraTextureCacheCorruptionWorkaround)
+        {
+            dispatch_semaphore_signal(frameRenderingSemaphore);
+            [self.currentCaptureInfo.finalFilterInChain useNextFrameForImageCapture];
+            [self captureOutput:photoOutput didOutputSampleBuffer:imageSampleBuffer fromConnection:[[photoOutput connections] objectAtIndex:0]];
+            dispatch_semaphore_wait(frameRenderingSemaphore, DISPATCH_TIME_FOREVER);
+        }
+    }
+    
+    CFDictionaryRef metadata = CMCopyDictionaryOfAttachments(NULL, imageSampleBuffer, kCMAttachmentMode_ShouldPropagate);
+    _currentCaptureMetadata = (__bridge_transfer NSDictionary *)metadata;
 
-        _currentCaptureMetadata = nil;
-    }];
+    self.currentCaptureInfo.handler(nil);
+
+    _currentCaptureMetadata = nil;
 }
 
-
+- (AVCapturePhotoSettings *) createPhotoSettings {
+    AVCapturePhotoSettings *photoCaptureSettings = [AVCapturePhotoSettings photoSettingsWithFormat:self.photoSettingsFormat];
+    photoCaptureSettings.flashMode = self.flashMode ? AVCaptureFlashModeOn : AVCaptureFlashModeOff;
+    photoCaptureSettings.highResolutionPhotoEnabled = YES;
+    return photoCaptureSettings;
+}
 
 @end
