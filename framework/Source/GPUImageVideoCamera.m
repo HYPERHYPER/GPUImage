@@ -776,32 +776,27 @@ void setColorConversion709( GLfloat conversionMatrix[9] )
         }
         else
         {
-            // TODO: Mesh this with the output framebuffer structure
-            
-//            CVPixelBufferLockBaseAddress(cameraFrame, 0);
-//            
-//            CVReturn err = CVOpenGLESTextureCacheCreateTextureFromImage(kCFAllocatorDefault, [[GPUImageContext sharedImageProcessingContext] coreVideoTextureCache], cameraFrame, NULL, GL_TEXTURE_2D, GL_RGBA, bufferWidth, bufferHeight, GL_BGRA, GL_UNSIGNED_BYTE, 0, &texture);
-//            
-//            if (!texture || err) {
-//                NSLog(@"Camera CVOpenGLESTextureCacheCreateTextureFromImage failed (error: %d)", err);
-//                NSAssert(NO, @"Camera failure");
-//                return;
-//            }
-//            
-//            outputTexture = CVOpenGLESTextureGetName(texture);
-//            //        glBindTexture(CVOpenGLESTextureGetTarget(texture), outputTexture);
-//            glBindTexture(GL_TEXTURE_2D, outputTexture);
-//            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-//            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-//            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-//            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-//            
-//            [self updateTargetsForVideoCameraUsingCacheTextureAtWidth:bufferWidth height:bufferHeight time:currentTime];
-//
-//            CVPixelBufferUnlockBaseAddress(cameraFrame, 0);
-//            CFRelease(texture);
-//
-//            outputTexture = 0;
+            // Non-planar (BGRA) frame in YUV path — happens when photo capture
+            // delivers BGRA frames (e.g. HRSI too large for GPU texture)
+            CVPixelBufferLockBaseAddress(cameraFrame, 0);
+
+            outputFramebuffer = [[GPUImageContext sharedFramebufferCache] fetchFramebufferForSize:CGSizeMake(bufferWidth, bufferHeight) onlyTexture:YES];
+            [outputFramebuffer activateFramebuffer];
+
+            glBindTexture(GL_TEXTURE_2D, [outputFramebuffer texture]);
+
+            int bytesPerRow = (int) CVPixelBufferGetBytesPerRow(cameraFrame);
+            if (bytesPerRow / 4 > bufferWidth) {
+                glPixelStorei(0x0CF2, bytesPerRow / 4); // GL_UNPACK_ROW_LENGTH
+            }
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bufferWidth, bufferHeight, 0, GL_BGRA, GL_UNSIGNED_BYTE, CVPixelBufferGetBaseAddress(cameraFrame));
+            if (bytesPerRow / 4 > bufferWidth) {
+                glPixelStorei(0x0CF2, 0);
+            }
+
+            [self updateTargetsForVideoCameraUsingCacheTextureAtWidth:bufferWidth height:bufferHeight time:currentTime];
+
+            CVPixelBufferUnlockBaseAddress(cameraFrame, 0);
         }
         
         
