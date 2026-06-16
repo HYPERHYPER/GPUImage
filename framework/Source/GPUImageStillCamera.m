@@ -321,7 +321,24 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     // it is illegal to use the same settings for two photos, so create new before each capture
     AVCapturePhotoSettings *settings = [self createPhotoSettings];
     self.currentCaptureInfo = [[GPUImageStillCaptureInfo alloc] initWithFinalFilter:finalFilterInChain handler:block];
-    [photoOutput capturePhotoWithSettings:settings delegate:self];
+    // AVCapturePhotoOutput throws NSInvalidArgumentException when the session
+    // isn't running or has no active video connection. Catch it so the caller's
+    // handler still fires (it's what signals frameRenderingSemaphore) and the
+    // next capture doesn't deadlock waiting on the semaphore.
+    @try {
+        [photoOutput capturePhotoWithSettings:settings delegate:self];
+    }
+    @catch (NSException *exception) {
+        NSLog(@"GPUImageStillCamera: capturePhotoWithSettings threw: %@", exception);
+        self.currentCaptureInfo = nil;
+        NSError *error = [NSError errorWithDomain:NSStringFromClass(self.class)
+                                             code:0
+                                         userInfo:@{ NSLocalizedDescriptionKey:
+                                                     [NSString stringWithFormat:@"capturePhotoWithSettings threw: %@", exception.reason ?: @"unknown"] }];
+        if (block) {
+            block(error);
+        }
+    }
 }
 
 #pragma mark - AVCapturePhotoCaptureDelegate
