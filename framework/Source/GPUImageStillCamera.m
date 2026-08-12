@@ -129,11 +129,9 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     CMVideoDimensions dimensionsOfPhoto = _inputCamera.activeFormat.highResolutionStillImageDimensions;
     CGSize sizeOfPhoto = CGSizeMake(dimensionsOfPhoto.width, dimensionsOfPhoto.height);
     CGSize scaledImageSizeToFitOnGPU = [GPUImageContext sizeThatFitsWithinATextureForSize:sizeOfPhoto];
-    if (!CGSizeEqualToSize(sizeOfPhoto, scaledImageSizeToFitOnGPU)) {
-        captureAsYUV = NO;
-    }
-    
-    if (captureAsYUV && [GPUImageContext deviceSupportsRedTextures])
+    BOOL photoCanUseYUV = CGSizeEqualToSize(sizeOfPhoto, scaledImageSizeToFitOnGPU);
+
+    if (photoCanUseYUV && [GPUImageContext deviceSupportsRedTextures])
     {
         BOOL supportsFullYUVRange = NO;
         NSArray *supportedPixelFormats = photoOutput.availablePhotoPixelFormatTypes;
@@ -156,9 +154,7 @@ void GPUImageCreateResizedSampleBuffer(CVPixelBufferRef cameraFrame, CGSize fina
     }
     else
     {
-        captureAsYUV = NO;
         self.photoSettingsFormat = @{ (NSString *)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA) };
-        [videoOutput setVideoSettings:[NSDictionary dictionaryWithObject:[NSNumber numberWithInt:kCVPixelFormatType_32BGRA] forKey:(id)kCVPixelBufferPixelFormatTypeKey]];
     }
 }
 
