@@ -22,6 +22,14 @@
     GLfloat backgroundColorRed, backgroundColorGreen, backgroundColorBlue, backgroundColorAlpha;
 
     CGSize boundsSizeAtFrameBufferEpoch;
+
+    // UIKit and CoreAnimation state copied on the main thread for use on the video processing
+    // queue. Touching the view or its layer from a queue worker leaves an implicit CATransaction
+    // on that thread, and when the thread exits the transaction commits and runs Auto Layout off
+    // the main thread, which throws.
+    CGSize mainThreadBoundsSize;
+    CGFloat mainThreadContentScaleFactor;
+    BOOL displayFramebufferCreationScheduled;
 }
 
 @property (assign, nonatomic) NSUInteger aspectRatio;
@@ -94,7 +102,11 @@
 
     self.enabled = YES;
     
+    CGSize boundsSize = self.bounds.size;
+    CGFloat contentScaleFactor = self.contentScaleFactor;
     runSynchronouslyOnVideoProcessingQueue(^{
+        mainThreadBoundsSize = boundsSize;
+        mainThreadContentScaleFactor = contentScaleFactor;
         [GPUImageContext useImageProcessingContext];
         
         displayProgram = [[GPUImageContext sharedImageProcessingContext] programForVertexShaderString:kGPUImageVertexShaderString fragmentShaderString:kGPUImagePassthroughFragmentShaderString];
@@ -133,16 +145,28 @@
 - (void)layoutSubviews {
     [super layoutSubviews];
     
-    // The frame buffer needs to be trashed and re-created when the view size changes.
-    if (!CGSizeEqualToSize(self.bounds.size, boundsSizeAtFrameBufferEpoch) &&
-        !CGSizeEqualToSize(self.bounds.size, CGSizeZero)) {
-        runSynchronouslyOnVideoProcessingQueue(^{
+    CGSize boundsSize = self.bounds.size;
+    CGFloat contentScaleFactor = self.contentScaleFactor;
+    runSynchronouslyOnVideoProcessingQueue(^{
+        mainThreadBoundsSize = boundsSize;
+        mainThreadContentScaleFactor = contentScaleFactor;
+        
+        // The frame buffer needs to be trashed and re-created when the view size changes.
+        if (!CGSizeEqualToSize(boundsSize, boundsSizeAtFrameBufferEpoch) &&
+            !CGSizeEqualToSize(boundsSize, CGSizeZero)) {
             [self destroyDisplayFramebuffer];
             [self createDisplayFramebuffer];
-        });
-    } else if (!CGSizeEqualToSize(self.bounds.size, CGSizeZero)) {
-        [self recalculateViewGeometry];
-    }
+        } else if (!CGSizeEqualToSize(boundsSize, CGSizeZero)) {
+            [self recalculateViewGeometry];
+        }
+    });
+}
+
+/// The live bounds on the main thread (a synchronous dispatch from main runs its block there),
+/// otherwise the size recorded at the last layout pass.
+- (CGSize)boundsSizeForCurrentThread
+{
+    return [NSThread isMainThread] ? self.bounds.size : mainThreadBoundsSize;
 }
 
 - (void)dealloc
@@ -186,8 +210,9 @@
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, displayRenderbuffer);
 	
     __unused GLuint framebufferCreationStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    NSAssert(framebufferCreationStatus == GL_FRAMEBUFFER_COMPLETE, @"Failure with display framebuffer generation for display of size: %f, %f", self.bounds.size.width, self.bounds.size.height);
-    boundsSizeAtFrameBufferEpoch = self.bounds.size;
+    CGSize boundsSize = [self boundsSizeForCurrentThread];
+    NSAssert(framebufferCreationStatus == GL_FRAMEBUFFER_COMPLETE, @"Failure with display framebuffer generation for display of size: %f, %f", boundsSize.width, boundsSize.height);
+    boundsSizeAtFrameBufferEpoch = boundsSize;
 
     [self recalculateViewGeometry];
 }
@@ -209,16 +234,52 @@
 	}
 }
 
-- (void)setDisplayFramebuffer;
+- (BOOL)setDisplayFramebuffer;
 {
     if (!displayFramebuffer)
     {
+        if (![NSThread isMainThread])
+        {
+            // Attaching the renderbuffer to the layer is CoreAnimation work, so it belongs on main.
+            [self scheduleDisplayFramebufferCreation];
+            return NO;
+        }
         [self createDisplayFramebuffer];
+        if (!displayFramebuffer)
+        {
+            return NO;
+        }
     }
     
     glBindFramebuffer(GL_FRAMEBUFFER, displayFramebuffer);
     
     glViewport(0, 0, (GLint)_sizeInPixels.width, (GLint)_sizeInPixels.height);
+    return YES;
+}
+
+- (void)scheduleDisplayFramebufferCreation;
+{
+    if (displayFramebufferCreationScheduled)
+    {
+        return;
+    }
+    displayFramebufferCreationScheduled = YES;
+    
+    __weak GPUImageView *weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        GPUImageView *strongSelf = weakSelf;
+        if (strongSelf == nil)
+        {
+            return;
+        }
+        runSynchronouslyOnVideoProcessingQueue(^{
+            strongSelf->displayFramebufferCreationScheduled = NO;
+            if (!strongSelf->displayFramebuffer)
+            {
+                [strongSelf createDisplayFramebuffer];
+            }
+        });
+    });
 }
 
 - (void)presentFramebuffer;
@@ -235,12 +296,12 @@
     runSynchronouslyOnVideoProcessingQueue(^{
         CGFloat heightScaling, widthScaling;
         
-        CGSize currentViewSize = self.bounds.size;
+        CGSize currentViewSize = [self boundsSizeForCurrentThread];
         
         //    CGFloat imageAspectRatio = inputImageSize.width / inputImageSize.height;
         //    CGFloat viewAspectRatio = currentViewSize.width / currentViewSize.height;
         
-        CGRect insetRect = AVMakeRectWithAspectRatioInsideRect(inputImageSize, self.bounds);
+        CGRect insetRect = AVMakeRectWithAspectRatioInsideRect(inputImageSize, (CGRect){CGPointZero, currentViewSize});
         
         switch(_fillMode)
         {
@@ -373,7 +434,12 @@
 {
     runSynchronouslyOnVideoProcessingQueue(^{
         [GPUImageContext setActiveShaderProgram:displayProgram];
-        [self setDisplayFramebuffer];
+        if (![self setDisplayFramebuffer])
+        {
+            [inputFramebufferForDisplay unlock];
+            inputFramebufferForDisplay = nil;
+            return;
+        }
         
         glClearColor(backgroundColorRed, backgroundColorGreen, backgroundColorBlue, backgroundColorAlpha);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -430,15 +496,17 @@
 
 - (CGSize)maximumOutputSize;
 {
-    if ([self respondsToSelector:@selector(setContentScaleFactor:)])
+    if ([NSThread isMainThread])
     {
         CGSize pointSize = self.bounds.size;
         return CGSizeMake(self.contentScaleFactor * pointSize.width, self.contentScaleFactor * pointSize.height);
     }
-    else
-    {
-        return self.bounds.size;
-    }
+    
+    __block CGSize maximumOutputSize;
+    runSynchronouslyOnVideoProcessingQueue(^{
+        maximumOutputSize = CGSizeMake(mainThreadContentScaleFactor * mainThreadBoundsSize.width, mainThreadContentScaleFactor * mainThreadBoundsSize.height);
+    });
+    return maximumOutputSize;
 }
 
 - (void)endProcessing
